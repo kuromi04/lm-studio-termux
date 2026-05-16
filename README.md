@@ -7,7 +7,7 @@ Este repositorio contiene una adaptación automática para instalar y ejecutar *
 Copia y pega este comando en tu terminal de Termux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TU_USUARIO/lm-studio-termux/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kuromi04/lm-studio-termux/main/install.sh | bash
 ```
 
 *(Nota: Reemplaza TU_USUARIO por tu nombre de usuario de GitHub después de hacer el fork o subirlo).*
