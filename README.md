@@ -36,4 +36,4 @@ Una vez instalado, puedes usar el comando `lms` directamente:
 -   Suficiente espacio de almacenamiento para los modelos.
 
 ---
-Adaptado por Gemini CLI para la comunidad.
+Adaptado por @Kuromi04 para la comunidad de termux
