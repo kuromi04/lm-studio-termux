@@ -50,7 +50,7 @@ echo -e "${YELLOW}[*] Creando acceso directo 'lms' en Termux...${NC}"
 cat <<EOF > $PREFIX/bin/lms
 #!/data/data/com.termux/files/usr/bin/bash
 # Script puente para LM Studio en PRoot
-proot-distro login ubuntu -- /root/.lmstudio/bin/lms "\$@"
+proot-distro login ubuntu -- bash -c "export HOME=/root && /root/.lmstudio/llmster/0.0.12-1/.bundle/lms \"\$@\""
 EOF
 chmod +x $PREFIX/bin/lms
 
