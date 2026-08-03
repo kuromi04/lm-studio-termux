@@ -1,66 +1,118 @@
 #!/data/data/com.termux/files/usr/bin/bash
+set -Eeuo pipefail
 
 # ============================================================
 #  🌌 LM STUDIO TERMUX ADAPTER
-#  Adaptación automática para correr LM Studio en Android
+#  Instalador de LM Studio Headless/CLI para Android + Termux
 # ============================================================
 
-# Colores
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 RED='\033[0;31m'
+WHITE='\033[1;37m'
 NC='\033[0m'
 
-echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║         🌌 LM STUDIO - TERMUX ADAPTATION             ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+log() { echo -e "${CYAN}[*]${NC} $*"; }
+ok() { echo -e "${GREEN}[✓]${NC} $*"; }
+warn() { echo -e "${YELLOW}[!]${NC} $*"; }
+fail() { echo -e "${RED}[x]${NC} $*" >&2; exit 1; }
 
-# 1. Verificar Arquitectura
-ARCH=$(uname -m)
-if [ "$ARCH" != "aarch64" ]; then
-    echo -e "${RED}[!] Error: Esta adaptación solo soporta arquitectura ARM64 (aarch64).${NC}"
-    exit 1
-fi
+require_termux() {
+    if [[ -z "${PREFIX:-}" || "${PREFIX}" != */com.termux/files/usr ]]; then
+        fail "Este instalador debe ejecutarse dentro de Termux."
+    fi
+}
 
-# 2. Instalar dependencias en Termux
-echo -e "\n${YELLOW}[*] Actualizando paquetes e instalando dependencias...${NC}"
-pkg update && pkg upgrade -y
-pkg install proot-distro curl git -y
+check_arch() {
+    local arch
+    arch="$(uname -m)"
+    if [[ "${arch}" != "aarch64" ]]; then
+        fail "Arquitectura no soportada: ${arch}. Esta adaptación requiere ARM64/aarch64."
+    fi
+}
 
-# 3. Configurar Ubuntu (entorno glibc)
-if ! proot-distro list | grep -q "ubuntu.*Installed"; then
-    echo -e "${YELLOW}[*] Instalando Ubuntu (entorno de compatibilidad)...${NC}"
+install_termux_deps() {
+    log "Actualizando paquetes de Termux e instalando dependencias..."
+    pkg update -y
+    pkg upgrade -y
+    pkg install -y proot-distro curl ca-certificates git
+}
+
+install_ubuntu() {
+    if proot-distro list | grep -qi '^ *ubuntu.*installed'; then
+        ok "Ubuntu ya está instalado en proot-distro."
+        return
+    fi
+
+    log "Instalando Ubuntu como entorno de compatibilidad glibc..."
     proot-distro install ubuntu
-else
-    echo -e "${GREEN}[✓] Ubuntu ya está instalado.${NC}"
-fi
+}
 
-# 4. Instalar LM Studio dentro de Ubuntu
-echo -e "${YELLOW}[*] Ejecutando instalación oficial de LM Studio dentro de Ubuntu...${NC}"
-proot-distro login ubuntu -- bash -c "
-    apt update && apt upgrade -y
-    apt install curl bash -y
-    echo 'Descargando binarios oficiales...'
-    curl -fsSL https://lmstudio.ai/install.sh | bash
-"
+install_lmstudio_in_ubuntu() {
+    log "Instalando LM Studio CLI dentro de Ubuntu..."
+    proot-distro login ubuntu -- bash -lc '
+        set -Eeuo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y curl ca-certificates bash findutils
+        curl -fsSL https://lmstudio.ai/install.sh | bash
+    '
+}
 
-# 5. Crear el comando puente 'lms' en Termux
-echo -e "${YELLOW}[*] Creando acceso directo 'lms' en Termux...${NC}"
-cat <<EOF > $PREFIX/bin/lms
+create_lms_bridge() {
+    log "Creando comando puente lms en Termux..."
+    cat > "${PREFIX}/bin/lms" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# Script puente para LM Studio en PRoot
-proot-distro login ubuntu -- bash -c "export HOME=/root && /root/.lmstudio/llmster/0.0.12-1/.bundle/lms \"\$@\""
-EOF
-chmod +x $PREFIX/bin/lms
+set -Eeuo pipefail
 
-# 6. Finalización
-echo -e "\n${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   [V] ¡INSTALACIÓN COMPLETADA CON ÉXITO!             ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
-echo -e "\nAhora puedes usar el comando ${CYAN}'lms'${NC} directamente en Termux."
-echo -e "Ejemplos:"
-echo -e "  ${WHITE}lms search llama${NC}    - Buscar modelos"
-echo -e "  ${WHITE}lms status${NC}          - Ver estado"
-echo -e "  ${WHITE}lms server start${NC}    - Iniciar servidor API OpenAI"
-echo -e "\n${YELLOW}Nota: La primera vez que corras un modelo, el sistema detectará el hardware.${NC}\n"
+exec proot-distro login ubuntu -- bash -lc '
+    set -Eeuo pipefail
+    export HOME=/root
+    export PATH="$HOME/.lmstudio/bin:$HOME/.local/bin:$PATH"
+
+    if command -v lms >/dev/null 2>&1; then
+        exec lms "$@"
+    fi
+
+    lms_bin="$(find "$HOME/.lmstudio" -type f -name lms -perm -111 2>/dev/null | sort -V | tail -n 1 || true)"
+    if [[ -n "$lms_bin" ]]; then
+        exec "$lms_bin" "$@"
+    fi
+
+    echo "No se encontró el binario lms dentro de Ubuntu." >&2
+    echo "Prueba reinstalar con: curl -fsSL https://raw.githubusercontent.com/kuromi04/lm-studio-termux/main/install.sh | bash" >&2
+    exit 127
+' -- "$@"
+EOF
+    chmod +x "${PREFIX}/bin/lms"
+    ok "Comando lms instalado en ${PREFIX}/bin/lms"
+}
+
+print_success() {
+    echo -e "\n${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║   [✓] ¡INSTALACIÓN COMPLETADA CON ÉXITO!             ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+    echo -e "\nAhora puedes usar el comando ${CYAN}lms${NC} directamente en Termux."
+    echo -e "Ejemplos:"
+    echo -e "  ${WHITE}lms search llama${NC}     - Buscar modelos"
+    echo -e "  ${WHITE}lms status${NC}           - Ver estado"
+    echo -e "  ${WHITE}lms server start${NC}     - Iniciar servidor API compatible con OpenAI"
+    echo -e "\n${YELLOW}Nota:${NC} La primera ejecución puede tardar mientras LM Studio detecta el hardware.\n"
+}
+
+main() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║         🌌 LM STUDIO - TERMUX ADAPTATION             ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+
+    require_termux
+    check_arch
+    install_termux_deps
+    install_ubuntu
+    install_lmstudio_in_ubuntu
+    create_lms_bridge
+    print_success
+}
+
+main "$@"
